@@ -26,13 +26,12 @@ export const ENQUIRY_PHONE = '13714286517';
  * produces: each page's `rel="canonical"`, the hreflang alternates, `og:url`,
  * `sitemap.xml`, and the `Sitemap:` line in `robots.txt`.
  *
- * This repository is the second deployment of the same site: identical content, built
- * from the same backup, served from its own domain, for a client who needs two
- * addresses that each open a complete site. There are no redirect rules between the two
- * sites and none inside either of them - each domain is simply itself - so this constant
- * is the only place the second site's address is written, and it has to be right: a copy
- * that kept the other domain here would spend its life telling every crawler and every
- * share preview that the real page lives somewhere else.
+ * Same code as the other site, different site. The owner runs two domains that each
+ * have to open a complete site, with no redirect rules between them and none inside
+ * either one - each domain is simply itself, so each repository declares its own host
+ * here. That makes this constant the only place the answer is written, and a copy that
+ * kept the other domain here would spend its life telling every crawler and every share
+ * preview that the real page lives somewhere else.
  *
  * The bare host, because this domain is the one the backup was taken from: the cached
  * homepage the builder reads declares `canonical = https://tftstar.com/`, and the

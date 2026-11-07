@@ -13,6 +13,8 @@
 ```
 npm run wp:data     备份的 SQL dump  -> data/wp-*.json（结构化内容）
 npm run mirror      页面缓存 + 归档资源 -> dist/
+npm run fonts       gstatic 字体 URL  -> 本地 CSS + woff2（入库，有则用）
+npm run images      备份里的大图 -> WebP、视频 -> 首帧 poster（入库，有则用）
 npm run check       校验产物（部署门禁，失败退出码 1）
 npm run verify      mirror + check
 npm test            URL 改写与内容改动的单元测试
@@ -20,6 +22,8 @@ npm run preview     本地起 dist/
 ```
 
 没有 `deploy` 脚本：发布靠推到 GitHub，Pages 从仓库取产物（见下）。
+
+`npm run fonts` 与 `npm run images` 都需要联网或本机的编码工具，而且只在你要改动字体 / 图片本身时才跑。产物只读 `public/fonts/manifest.json` 与 `work/media/manifest.json`：两个清单已在仓库里，所以 clone 下来 `npm run mirror` 就会用它们，不跑这两个命令也不会报错（只是不会新增任何东西）。Pages 那端不跑构建，所以上线根本不需要 `sharp`。
 
 `node tools/mirror.mjs --site-origin https://your-domain.com` 换目标域名；
 `--language-floater top-right|top-left|bottom-right|bottom-left` 换语言浮层位置；
@@ -33,6 +37,9 @@ tools/check.mjs             产物校验器（部署前跑）
 tools/serve.mjs             静态预览服务器
 tools/lib/paths.js          所有路径的唯一来源
 tools/lib/fs-utils.js       文件遍历与删除
+tools/lib/html-tags.js      标签属性解析（构建器与门禁读同一个实现）
+tools/media/apply.js        把产物里的图片引用改到 WebP、给视频写 poster（有单测）
+tools/media/convert.mjs     一次性媒体转换器：备份 -> work/media/（WebP + 首帧）
 tools/ingest/wp/            WordPress 备份的读取与探测
   sql-dump.js               MySQL dump 状态机解析器（不能用行正则：post_content 含 \n 与 );）
   model.js                  行 -> 对象、postmeta 按 post 聚合
@@ -42,9 +49,9 @@ tools/ingest/wp/            WordPress 备份的读取与探测
   probe-*.mjs               各项清点（内容、构建器、Elementor、缓存、覆盖率、变体、规格完整性…）
   untar.mjs                 零依赖 tar+gzip 抽取（bsdtar 解不了这里的 UTF-8 中文文件名）
 data/                       数据库抽出的结构化内容（入库）
-public/                     直接放 Pages 根的文件：_headers、_redirects、robots.txt
+public/                     直接放 Pages 根的文件：_headers、_redirects、robots.txt、site-search.*、fonts/（自托管的 gstatic 字体，入库）
 docs/fixes.md               原站固有问题清单（按你的决定：先 1:1 原样保留）
-dist/                       产物，不入库
+dist/                       产物，入库（Pages 不跑构建，线上文件就是这里的字节）
 work/                       临时物：解包的 1 GB docroot、解压后的 SQL、探测报告，不入库
 ```
 
@@ -62,6 +69,7 @@ work/                       临时物：解包的 1 GB docroot、解压后的 SQ
 6. **`<base>` 必须整块删除**，不能只清空它的 `href`：属性改写会先把 `href` 掏空，之后要求 `href="..."` 的正则再也匹配不到那个空元素，留下的 `<base>` 会毁掉全站相对链接。
 7. **TranslatePress 的 `/zh_cn/` 前缀要剥掉**（`/zh_cn/P` → `/P`，`/en/zh_cn/P` → `/en/P`）。原站由插件在请求时改写；静态树没有。实测剥完指向的页面**确实存在**，不是把 404 挪个地方。
 8. **资源发现要走三跳，且只对“本地确实有”的跨域地址动手。** 第一跳是页面里的引用（按路径形态而非属性名），第二跳是已拷 CSS 的 `url()`（不然整套 Font Awesome 字体丢），第三跳是已拷 JS 里**按名字要到**的 webpack 分块（`名字.哈希.bundle.min.js` 只存在于 Elementor 的 runtime 表里，前两跳永远看不到）。跳不过去的时候宁可保留原样：CSS 里指向旧域的绝对地址**只在备份里有同一相对路径的字节时**才改指向本地——指到一个自己造的空路径比指到一个至少有图的旧域更难解释，也更快使门禁变成假报告。
+9. **可选步骤的清单只能“有则用”，不能“缺则报错”。** 字体与媒体各有一个清单（`public/fonts/manifest.json`、`work/media/manifest.json`），都是本地跑出来的产物。读不到清单时构建器一个字节不改（保留原站的 Google 链接 / 原图），门禁把对应的断言降级为一条 info。这跟“引用数量不得凭空减少”不矛盾：那条针对的是改写错误，这一条针对的是本地工具从未跑过——两者在产物里是完全不同的事。
 
 ## 校验器断言什么
 
@@ -77,6 +85,8 @@ work/                       临时物：解包的 1 GB docroot、解压后的 SQ
 - 只能 AJAX 的组件：整块删的删到了、只删控件的挖不出东西了，且**每页产品卡片数与缓存页相等**（删控件不许带走内容）
 - `tel:` 链接全站只能有一个号码，且必须等于 `ENQUIRY_PHONE`
 - 只能 AJAX 的脚本：页面不加载它、重跑规则挖不出东西，且**语言切换相关四组计数逐页与缓存页相等**（防的是删的时候把旁边的切换器一并带走）
+- 媒体改写两边都对得上：产物点名的转换文件**必须在产物里**、产物**不得还点原图**（页面级）、不得带着没人要的转换文件，而带视频的页必须真的写了 poster；没跑 `npm run images` 时这一组降级为一条 info
+- 样式表合并不得改变级联：每页的“级联形状”（把 bundle 就地展开回它冒充的那串文件）逐字符等于构建器记录的合并前值；bundle 每一段等于磁盘上那个成员文件的字节；bundle 文件名等于自身内容的 sha1；对产物重跑合并挖不出东西
 - 双语结构齐备（根文档、`/en/`、sitemap、`_headers`、`404.html`）
 
 `404.html` 用首页自己的 header/footer 拼装（原站从未缓存 404 页），因此它不是复刻、是补作 —— 站点名从首页 `<title>` 后缀取，不硬编码。
@@ -119,9 +129,9 @@ Pages 侧要做的是把域名挂上项：Custom domains 里 `tftstar.com`（建
 
 将来要换域名时，改动只有一处：`SITE_ORIGIN` 改成新主机，重跑 `npm run mirror`。这个常量是答案的唯一定义处，产物里不会残留另一个 host（门禁会比对两种写法，只允许声明的那一种）。本站与 `starbillions.cn` 互不收拢：两个域名各自独立服务，没有跳转关系。
 
-## 与原站不同的十四处（均为有意）
+## 与原站不同的十六处（均为有意）
 
-复刻之外，站主明确要求过、或原站自身写错而必须偏离的共十四处。它们全部集中在 `tools/lib/site-links.js` 与 `tools/ingest/wp/staticize.js`（偏好只写一份，构建器与门禁读同一处），只有缓存策略在 `public/_headers`：
+复刻之外，站主明确要求过、或原站自身写错而必须偏离的共十六处。它们全部集中在 `tools/lib/site-links.js`、`tools/ingest/wp/staticize.js` 与 `tools/media/apply.js`（偏好只写一份，构建器与门禁读同一处），只有缓存策略在 `public/_headers`：
 
 - **语言浮层**：原位置 `trp-bottom-right` 在手机上正好盖住底部菜单项，改为 `trp-top-right`。做法是换 TranslatePress 自己的位置类，不是写 CSS 覆盖 —— 插件的 `.trp-top-right` 规则在源码顺序上晚于 `:hover` 规则，同特异度下后来者赢，不需要 `!important`。
 - **询盘按钮**：产品页那 68 个（中英各 34）原本指向 `starbillions.cn` 的联系页（第三个域名），改为 `https://wa.me/8613714286517`。只按按钮可见文案匹配，所以改文案就会安全地不再命中；其余“联系我们”类链接一律未动。
@@ -194,3 +204,9 @@ Pages 侧要做的是把域名挂上项：Custom domains 里 `tftstar.com`（建
 为什么可以 `immutable`：bundle 的文件名是自身字节的 sha1，改一个规则就换名字，不可能给访客一份旧的。而 `/fonts/*.css` **不能**进 immutable：它的名字是 Google **CSS URL** 的 sha1，URL 不变但 Google 返回的内容会变（新字重、字体版本轮换），冻住就等于把访客锁在几个月前抓的那份上。`_headers` 里两段注释写的就是这个区别。
 
 门禁四条：每页的“级联形状”（样式表与 inline style 的到达序列，把 bundle 展开回它的成员）必须与构建器记录的合并前值逐字符相等；每个 bundle 的每一段必须等于磁盘上那个成员文件的字节（经同样的 url 重定根与 BOM/@charset 处理）；bundle 文件名必须等于自身内容的 sha1；对产物重跑合并必须挖不出东西。原来的“stylesheet hrefs 计数不得下降”已删除——它数的是链接数，而链接数下降正是这条规则的目的，留着会把改进报成损失。
+
+**15. 大图发 WebP，不发原站的 PNG/JPG。** 站主问“纯静态应该极快吧”，量出来发现静态描述的是服务器不是重量：首页拉 83 个样式表、64 个脚本、302 个图片引用，**它们合计 56 MB**（产品页 75 MB）。所以 `npm run images` 从**缓存页真正引用的**文件里取 ≥40 KB 的转 WebP（quality 82），构建器把引用改到 `.webp`。**同一张图，不是另一张图**——不重画、不裁、不改文件名里的原扩展名（而是后缀追加），所以一个旧书签指向的还是同一个画面。与上一项（合并）叠起来的两份产物对比：**197.5 MB / 859 文件 → 148.8 MB / 861 文件**；本地 HTTP 实访每页 331–394 个请求，**404 为 0**，`Content-Type: image/webp`。两条门槛都是量过的而不是抄的：11 张转出来省不到 25%，就不转；样式表里**没有任何 ≥150 KB 图**（0 张），所以不动拷出去的 CSS。没跑 `npm run images` 时构建器一个字节不改（Pages 不构建，所以它永远不需要 `sharp`）。
+
+一个必须记的形状：同一文件在一页里**同时**以百分号编码与原样中文两种拼法出现（实测产物：原样 6,206 次、编码 14,185 次），所以改写必须两拼法都命中——只按文件系统拼法匹配会静静漏掉整个 `srcset`，而当原图被剪掉时那就是一片图 404，而门禁如果只读属性列表（`src`/`href`）仍会全绿。“还要不要拷原图”同样只问写完的产物（含已拷 CSS/JS——上一项的 bundle 里就可能带着它），不问输入。另一个同样静默的坑：转换器读的是缓存页，而构建器会删掉某些小组件的引用，于是产出了 65 个没人点的 WebP——现在转换产物也要过一遍“有没有人点”才能入库。
+
+**16. 视频在播放前显示它自己的首帧。** 7 页（中英各 7）共 14 个 `<video>` 没有 `poster`，也没 `src`（源在 Woodmart 的 `data-lazy-load` 里），于是那整块就是一张黑。唯一诚实的候选帧只能从**视频自己**取（本机 `ffmpeg` 取第一帧 → `sharp` 缩到 800px 宽转 WebP），因为产品页的“特色图”14 页全等——都是同一张站内占位图 `62b9cc781cece.png`，拿它当 poster 等于给十四个不同产品贴同一张不相干的图，那比黑块更错。同时补上 `preload="none"`。poster 的名字由**源自己的拼法**把扩展名换掉得到（所以绝对域名与中文文件名都跟着源走），门禁则断言“每个源已转换的视频都写了 poster”并实测 14 个引用全部 `200 image/webp`。没有新增任何内容：那一帧本来就是视频的一部分。
