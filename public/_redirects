@@ -9,6 +9,14 @@
 # a build that no longer exists. Rules for paths a mirror does not produce are not
 # harmless: they read as intent, and the next person edits the wrong thing.
 
+# The bare-to-www hop is NOT here, and must not be added here. It is a redirect rule in
+# the Cloudflare zone, measured on 2026-11-07 answering https://tftstar.com/ with 301 and
+# location https://www.tftstar.com/ (server: cloudflare). Zone rules are evaluated before
+# Pages routing, which is why www.tftstar.com is the only hostname that needs attaching to
+# the Pages project. Writing the same hop a second time here would not loop - the zone
+# rule wins - but it would put the answer in two places, and only one of them is the one
+# anyone is editing.
+
 /index.html    /    308
 
 # Deep duplicates (/product/x/index.html) are handled by Pages' own trailing-slash

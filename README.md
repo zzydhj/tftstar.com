@@ -1,6 +1,6 @@
 # tftstar.com — tftstar.com 的静态复刻
 
-> **本仓库是独立仓库、独立部署**：它有自己唯一的 GitHub 仓库和自己的 Cloudflare Pages 项目，与其他站点（含 `starbillions.cn`）的部署不共用仓库、不共用 Pages 项目。构建输入是 `tftstar.com` 自己的备份（`24.4.22-tftstar/`，随仓库外拷贝、不入库），`tools/lib/site-links.js` 里的 `SITE_ORIGIN = https://tftstar.com` 与本站域名一致，下面部署那一节的域名写法也只针对本站。
+> **本仓库是独立仓库、独立部署**：它有自己唯一的 GitHub 仓库和自己的 Cloudflare Pages 项目，与其他站点（含 `starbillions.cn`）的部署不共用仓库、不共用 Pages 项目。构建输入是 `tftstar.com` 自己的备份（`24.4.22-tftstar/`，随仓库外拷贝、不入库），`tools/lib/site-links.js` 里的 `SITE_ORIGIN = https://www.tftstar.com` 与本站对外地址一致（同一个域只用 `www`，裸域由 zone 301 过来，见部署那一节），下面部署那一节的域名写法也只针对本站。
 
 原站是 WordPress + WooCommerce + Woodmart + Elementor + TranslatePress 的定制显示屏（TFT，薄膜晶体管）厂商站，中英双语。本仓库把它**原样复刻**成纯静态站点，部署到 Cloudflare Pages。
 
@@ -113,25 +113,27 @@ Pages 项目的设置（Create project → Git → 选**本仓库**）：
 
 `_headers`、`_redirects`、`sitemap.xml`、`404.html` 都在 `dist/` 里，Pages 会直接生效；深层页面的 `…/index.html` 会自动去后缀，所以链接写 `/product/xxx/` 形式即可。
 
-### 域名：每个站就是它自己，不做任何跳转
+### 域名：同一个域只用 `www`，裸域由 zone 跳过来
 
-站主 2026-11-07 最终确认：**没有重定向规则**。`starbillions.cn` 就是 `starbillions.cn`，`tftstar.com` 就是 `tftstar.com`；两者共用一套代码但分开部署，各自服务自己的域名。因此：
+站主 2026-11-07 的决定是 **`www` 是唯一的对外地址**，而且已经落在 Cloudflare zone 里：`https://tftstar.com/` 回答 `301`，`location: https://www.tftstar.com/`，`server: cloudflare`。这条规则**不由本仓库写**——`dist/_redirects` 只有一行 `/index.html → / 308`，bare→www 是 zone 的重定向规则，由站主维护。
 
-- **本站声明裸域**：`SITE_ORIGIN = https://tftstar.com`。这个域名就是备份的来源域——构建器读的那份缓存首页里 `canonical = https://tftstar.com/`，hreflang 也是裸域。镜像不发明原站没用的写法。
+改口的依据是线上实测，不是偏好：部署中的首页写 `<link rel="canonical" href="https://tftstar.com/">`，`/sitemap.xml` 的 137 个 `<loc>` 与 `robots.txt` 的 `Sitemap:` 行也全是裸域，而访客和爬虫实际被 301 到 www——**每一页的 canonical 都指向一个会跳转的 URL**。功能没坏（两种写法内容一致、内部链接全是根绝对路径），但 canonical 指向会跳转的 host 正是搜索最不喜欢的那种信号。于是：
+
+- **本站声明 `www`**：`SITE_ORIGIN = https://www.tftstar.com`。备份的来源域是裸域（构建器读的那份缓存首页 `canonical = https://tftstar.com/`），所以这是一次有意偏离，记在下面第 17 条：`rootifyOrigins` 先把所有 `https://tftstar.com/...` 引用变成根相对路径，`absoluteIdentityUrls` 再把身份字段写成 `SITE_ORIGIN`。
 - **构建负责不写错 host**。`SITE_ORIGIN`（`tools/lib/site-links.js`）是唯一一处，每页的 `rel="canonical"`、hreflang、`og:url`、`sitemap.xml` 的 `<loc>`、`robots.txt` 的 `Sitemap:` 行都**由它**派生（最后这一行以前手写，文件里还留着一句“改这里记得改那里”——现在由构建覆写，耦合消失）。改这个常量后必须重跑 `npm run mirror`。
-- **不配跳转也能跑**，因为产物里所有内部链接都是根绝对路径（`/product/x/`），不依赖访客输的是哪种写法。`www.` 与裸域都打得开、内容一致；只有身份字段选一边，选的是裸域。
+- **跳转变了，但只在一个域内部**。跨域仍然互不跳转：`starbillions.cn` 就是 `starbillions.cn`，`tftstar.com` 就是 `tftstar.com`，两者共用一套代码但分开部署，各自服务自己的域名。这一条从没变过；变的是同一个域里裸域与 `www` 的关系。
 
 因为本站就是来源域，门禁里“不得残留旧来源域名”那条必须把**本站自己声明的 origin 排除**（否则 138 页的 canonical 会被当成残留）；它仍会拦下 `http://` 写法和其他不受控的绝对地址。
 
-Pages 侧要做的是把域名挂上项：Custom domains 里 `tftstar.com`（建议连 `www.tftstar.com` 一起挂）。**不需要 Bulk Redirects 列表**。
+Pages 侧要做的是把 `www.tftstar.com` 挂上项目。裸域**不必**挂：Cloudflare 的重定向规则是 zone 级、在 Pages 路由之前求值，所以那条 301 一定先生效，挂上去也只是多一条没人访问的绑定。（这里先前写过“建议连裸域一起挂”和“**不需要** Bulk Redirects 列表”，两句都是错的：前者理由不成立，后者已被线上实测推翻——zone 里就有一条。）
 
-**域名挂载现状（2026-11-07）**：`tftstar.com` 此前一度在服务另一个 Pages 项目（其 `/sitemap.xml` 里 137 个 `<loc>` 写的是 `www.starbillions.cn`）。本站作为独立项目部署后，确认能用 `*.pages.dev` 预览打开，再把域名改挂到本项目；否则中间会出现两边都不服务的空窗口。
+**部署现状（2026-11-07 实测）**：`tftstar.com` 现在服务的内容与本仓库 HEAD 逐标记相同（4 个 `/gen/` bundle、683 处 `.webp`、19 个样式表链接），Pages 项目是 Git 连接、推 `main` 自动构建部署。先前这里记录的“一度在服务另一个 Pages 项目（其 sitemap 写 `www.starbillions.cn`）”那种情况今天已测不到，别照着它去排查。
 
 将来要换域名时，改动只有一处：`SITE_ORIGIN` 改成新主机，重跑 `npm run mirror`。这个常量是答案的唯一定义处，产物里不会残留另一个 host（门禁会比对两种写法，只允许声明的那一种）。本站与 `starbillions.cn` 互不收拢：两个域名各自独立服务，没有跳转关系。
 
-## 与原站不同的十六处（均为有意）
+## 与原站不同的十七处（均为有意）
 
-复刻之外，站主明确要求过、或原站自身写错而必须偏离的共十六处。它们全部集中在 `tools/lib/site-links.js`、`tools/ingest/wp/staticize.js` 与 `tools/media/apply.js`（偏好只写一份，构建器与门禁读同一处），只有缓存策略在 `public/_headers`：
+复刻之外，站主明确要求过、或原站自身写错而必须偏离的共十七处。它们全部集中在 `tools/lib/site-links.js`、`tools/ingest/wp/staticize.js` 与 `tools/media/apply.js`（偏好只写一份，构建器与门禁读同一处），只有缓存策略在 `public/_headers`：
 
 - **语言浮层**：原位置 `trp-bottom-right` 在手机上正好盖住底部菜单项，改为 `trp-top-right`。做法是换 TranslatePress 自己的位置类，不是写 CSS 覆盖 —— 插件的 `.trp-top-right` 规则在源码顺序上晚于 `:hover` 规则，同特异度下后来者赢，不需要 `!important`。
 - **询盘按钮**：产品页那 68 个（中英各 34）原本指向 `starbillions.cn` 的联系页（第三个域名），改为 `https://wa.me/8613714286517`。只按按钮可见文案匹配，所以改文案就会安全地不再命中；其余“联系我们”类链接一律未动。
@@ -210,3 +212,9 @@ Pages 侧要做的是把域名挂上项：Custom domains 里 `tftstar.com`（建
 一个必须记的形状：同一文件在一页里**同时**以百分号编码与原样中文两种拼法出现（实测产物：原样 6,206 次、编码 14,185 次），所以改写必须两拼法都命中——只按文件系统拼法匹配会静静漏掉整个 `srcset`，而当原图被剪掉时那就是一片图 404，而门禁如果只读属性列表（`src`/`href`）仍会全绿。“还要不要拷原图”同样只问写完的产物（含已拷 CSS/JS——上一项的 bundle 里就可能带着它），不问输入。另一个同样静默的坑：转换器读的是缓存页，而构建器会删掉某些小组件的引用，于是产出了 65 个没人点的 WebP——现在转换产物也要过一遍“有没有人点”才能入库。
 
 **16. 视频在播放前显示它自己的首帧。** 7 页（中英各 7）共 14 个 `<video>` 没有 `poster`，也没 `src`（源在 Woodmart 的 `data-lazy-load` 里），于是那整块就是一张黑。唯一诚实的候选帧只能从**视频自己**取（本机 `ffmpeg` 取第一帧 → `sharp` 缩到 800px 宽转 WebP），因为产品页的“特色图”14 页全等——都是同一张站内占位图 `62b9cc781cece.png`，拿它当 poster 等于给十四个不同产品贴同一张不相干的图，那比黑块更错。同时补上 `preload="none"`。poster 的名字由**源自己的拼法**把扩展名换掉得到（所以绝对域名与中文文件名都跟着源走），门禁则断言“每个源已转换的视频都写了 poster”并实测 14 个引用全部 `200 image/webp`。没有新增任何内容：那一帧本来就是视频的一部分。
+
+**17. 身份 URL 从裸域改口到 `www`。** 备份里的原站声明裸域（缓存首页 `canonical = https://tftstar.com/`，hreflang 同样裸域），复刻也照着声明裸域——然后线上实测发现 Cloudflare zone 里有一条 bare→www 的 `301`，于是每一页的 canonical 都指向一个**会跳转的 URL**。这条不是审美问题：canonical 的作用就是告诉爬虫“哪一个地址是这一页的正式名字”，而它现在指的地址回答 301，规范信号被自己抵消。所以 `SITE_ORIGIN` 改成 `https://www.tftstar.com`，canonical / hreflang / `og:url` / sitemap 的 137 个 `<loc>` / `robots.txt` 的 `Sitemap:` 行全部跟着走——它们都是这一个常量的派生物，改一处不会漏。
+
+同一个域内部有了跳转，不等于跨域也有了：`starbillions.cn` 与 `tftstar.com` 之间仍然没有任何跳转规则，各自服务自己，这一层和第 1 条的决定没动过。
+
+为什么这次翻转账号得由门禁出：裸域 `tftstar.com` 是 `www.tftstar.com` 的**子串**，所以“另一种写法不得出现在页面里”那条断言如果直接拿裸域当针，会在一个正确的 www 构建上到处命中。它实际比对的是带协议的 `https://tftstar.com`，`//` 后面紧跟 `www.` 就再也匹配不上，子串陷阱消失。另一种写法是从声明值推导的（`check.mjs` 里 `otherHost`），所以翻转常量就翻转断言——**改一半的构建过不去**：漏改 canonical 会被这条抓住，漏跑 `npm run mirror` 也会被（`sitemap` 与 `robots` 那两条是重新推导比对的）。这一条的历史就是它自己值得被门禁保护的理由：host 写法已经被站主改过三次，而每一次“看起来一切正常”。

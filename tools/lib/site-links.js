@@ -27,23 +27,33 @@ export const ENQUIRY_PHONE = '13714286517';
  * `sitemap.xml`, and the `Sitemap:` line in `robots.txt`.
  *
  * Same code as the other site, different site. The owner runs two domains that each
- * have to open a complete site, with no redirect rules between them and none inside
- * either one - each domain is simply itself, so each repository declares its own host
- * here. That makes this constant the only place the answer is written, and a copy that
- * kept the other domain here would spend its life telling every crawler and every share
- * preview that the real page lives somewhere else.
+ * open a complete site, with no redirect rules between them - each domain is simply
+ * itself - so each repository declares its own host here, and a copy that kept the other
+ * domain would spend its life telling every crawler and every share preview that the
+ * real page lives somewhere else.
  *
- * The bare host, because this domain is the one the backup was taken from: the cached
- * homepage the builder reads declares `canonical = https://tftstar.com/`, and the
- * hreflang alternates name the same bare host. No `www` appears in the origin's own
- * identity fields, so the mirror does not invent one.
+ * `www`, because that is the host this domain resolves on. Measured against the deployed
+ * site on 2026-11-07: `https://tftstar.com/` answers `301` with
+ * `location: https://www.tftstar.com/`, `server: cloudflare`. That rule is not written
+ * by this repository - `dist/_redirects` carries one line, `/index.html -> / 308` - it
+ * is a Bulk Redirect in the Cloudflare zone, and the owner chose `www` as each domain's
+ * single primary host.
  *
- * One consequence worth knowing, because it is not visible in a page: without a
- * redirect, `www.tftstar.com` and `tftstar.com` both serve the same bytes. That is fine
- * - every internal link in the output is root-relative, so nothing depends on which
- * spelling the visitor typed - and only the identity fields pick a side.
+ * This domain is also the one the backup was taken from, which gives the choice a second
+ * consequence worth knowing, because it is invisible in a page: `rootifyOrigins` turns
+ * every `https://tftstar.com/...` reference into a root-relative path, and it cannot
+ * tell an identity field from an asset link, so `absoluteIdentityUrls` has to put those
+ * values back afterwards - and what it now writes is this constant, `www`, where the
+ * backup itself said the bare host. Which host is primary is a deployment decision, not
+ * content; keeping the bare host here would make all 137 sitemap `<loc>` entries a
+ * redirect and have every page name a host that serves nothing but a bounce.
+ *
+ * The gate follows the same reasoning. `check.mjs` excludes `siteOrigin` from the list
+ * of leftover origin hosts it forbids, so with the value on `www` nothing is excluded
+ * any more: a surviving `https://tftstar.com` URL in a page is a failure again, which is
+ * the correct statement now that the bare host only redirects.
  */
-export const SITE_ORIGIN = 'https://tftstar.com';
+export const SITE_ORIGIN = 'https://www.tftstar.com';
 
 /**
  * Point `robots.txt` at the sitemap the build just wrote.
