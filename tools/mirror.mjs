@@ -34,6 +34,7 @@
  * so preferring one of them costs nothing; the three that exist only as mobile are
  * reported rather than skipped.
  */
+import { createHash } from 'node:crypto';
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { copyFile, mkdir, writeFile as writeFileAsync } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -43,6 +44,8 @@ import { exists, removeTree, copyTree } from './lib/fs-utils.js';
 import { ENQUIRE_LABELS, ENQUIRY_PHONE, SITE_ORIGIN, rewriteRobotsSitemap, CONTACT_FORM_LABELS, MOBILE_TOOLBAR, enableStaticSearch, localizeGoogleFonts, replaceContactForm, replaceMapWithAddress, replaceMobileToolbar, repairMenuLinks, repairPhoneLinks, rewriteInquireButtons, translateEnglishTitle, updateCopyrightYear, whatsappUrlFor } from './lib/site-links.js';
 import { buildSearchIndex } from './ingest/wp/search-index.js';
 import {
+  cascadeShape,
+  combineStylesheets,
   fileReferencesIn,
   internalUrl,
   isExcluded,
@@ -517,6 +520,53 @@ export async function build({ quiet = false } = {}) {
 
   copyPublicExtras(siteOrigin);
 
+  /* ---- fold the render-blocking stylesheets into content-addressed bundles ---- */
+
+  /**
+   * This runs after every file has been written, and that ordering is the rule working
+   * rather than a detail: a bundle must contain the bytes the browser will get, so the
+   * Elementor CSS whose cross-domain url() was localised has to be localised first, and
+   * the copies above plus copyPublicExtras() have to have landed. A member that is not
+   * in dist/ refuses its whole run - silently dropping one stylesheet out of a bundle
+   * would lose rules, which is the one thing this pass is not allowed to do. Before this
+   * moved, four font stylesheets that copyPublicExtras() had not written yet were
+   * refusing 269 runs on their own.
+   */
+  const bundles = new Map();
+  const mergedInto = { links: 0, removed: 0, skipped: { attribute: 0, import: 0, missing: 0, url: 0 } };
+  const cascades = {};
+
+  const distRead = (p) => {
+    try { return readFileSync(join(paths.dist, p.replace(/^\//, '')), 'utf8'); } catch { return null; }
+  };
+  const distExists = (p) => exists(join(paths.dist, p.replace(/^\//, '')));
+  // Content-addressed, which is also what makes the bundle safe to cache forever: a
+  // changed rule set is a different name, so no visitor can be served an old one.
+  const bundleName = (text) => `/gen/${createHash('sha1').update(text).digest('hex').slice(0, 24)}.css`;
+
+  for (const out of [...pages.map((page) => page.outPath), '404.html']) {
+    const file = join(paths.dist, out);
+    const before = readFileSync(file, 'utf8');
+    // What applied before this pass touched the page. The gate expands the bundles back
+    // out of the shipped files and requires the same string, so a sheet that went missing
+    // or jumped an inline override is caught without trusting anything written here.
+    cascades[out] = cascadeShape(before);
+    const done = combineStylesheets(before, { read: distRead, exists: distExists, bundleName });
+
+    for (const [name, text] of done.bundles) bundles.set(name, text);
+    mergedInto.links += done.links;
+    mergedInto.removed += done.merged;
+    for (const reason of Object.keys(mergedInto.skipped)) mergedInto.skipped[reason] += done.skipped[reason];
+
+    if (done.merged > 0) await writeFileAsync(file, done.html, 'utf8');
+  }
+
+  for (const [name, text] of bundles) {
+    const to = join(paths.dist, name.slice(1));
+    await mkdir(dirname(to), { recursive: true });
+    await writeFileAsync(to, text, 'utf8');
+  }
+
   // The index the browser searches. Built from the shipped pages so a product that is
   // missing from the mirror is missing from search too, rather than being offered as a
   // result that 404s.
@@ -542,6 +592,8 @@ export async function build({ quiet = false } = {}) {
   console.log(`  identity urls  ${stats.identityUrls} canonical/hreflang value(s) put back to an absolute URL`);
   console.log(`  phone links    ${stats.phoneLinks} tel: link(s) redialled from the theme's demo number to +86${ENQUIRY_PHONE}`);
   console.log(`  search         ${index.length} entries (${index.filter((e) => e.lang === 'en').length} en), ${stats.searchWired} pages wired`);
+  console.log(`  css bundles    ${bundles.size} file(s) from ${mergedInto.links} stylesheet links, ${mergedInto.removed} request(s) removed`
+    + `, runs left alone: ${Object.entries(mergedInto.skipped).map(([why, n]) => `${n} ${why}`).join(', ')}`);
   console.log(`  uncached links ${unknownPages.size} targets the mirror links to but never rendered`);
   console.log(`  in             ${((Date.now() - started) / 1000).toFixed(1)} s\n`);
 
@@ -554,6 +606,7 @@ export async function build({ quiet = false } = {}) {
       pages: pages.map((page) => ({ url: page.urlPath, out: page.outPath, mobileOnly: page.mobileOnly, bytes: page.bytes })),
       canonicalMismatch: mismatched.map((page) => ({ served: page.urlPath, canonical: page.canonical })),
       absentAssets: [...missingFiles],
+      stylesheetCascades: cascades,
       uncachedLinkTargets: [...unknownPages].sort((a, b) => b[1] - a[1]).map(([path, uses]) => ({ path, uses })),
     }, null, 2)}\n`,
   );
