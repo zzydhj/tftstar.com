@@ -1,0 +1,36 @@
+# Line endings are pinned so that a clone reproduces dist/ byte for byte.
+#
+# This repository publishes generated files: Cloudflare Pages serves whatever a clone
+# of dist/ contains, and tools/check.mjs compares those bytes against the source cache.
+# A checkout that rewrites LF to CRLF would therefore serve - and validate - a document
+# nobody built, with every text file a few hundred bytes heavier than the mirror reported.
+#
+# The machine-wide default here is core.autocrlf=true, so without this file git would do
+# exactly that on every Windows clone and quietly change the deployed bytes.
+#
+# `-text` means: store and check out the bytes as they are, no conversion, for everything.
+# The explicit binary group exists so git never spends its line-ending heuristics on a
+# font or an image, and `whitespace=never` keeps diffs from complaining about trailing
+# spaces in markup copied from WordPress, which we must not "fix".
+* -text
+
+# Media and fonts: never treat as text, never diff.
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.eot binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.ico binary
+*.mp4 binary
+*.pdf binary
+*.gz binary
+*.zip binary
+
+# Trailing whitespace is data we inherited from the source, not a style problem.
+* whitespace=never

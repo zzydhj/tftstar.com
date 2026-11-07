@@ -1,0 +1,16 @@
+User-agent: *
+Allow: /
+
+# The host on the Sitemap line below is written by the build, not by whoever edits this
+# file: `npm run mirror` replaces that line with the same origin it used for every page's
+# canonical URL and every <loc> in sitemap.xml. It has to match, because a robots file
+# naming another domain is read as a foreign sitemap and discarded, and the site loses
+# its index quietly - no page on it looks wrong.
+#
+# So the value below is only a placeholder for a build that never ran. To serve the site
+# from somewhere else, pass the flag; do not edit this line, or the next build overwrites
+# it and the two disagree until someone notices:
+#
+#   npm run mirror --site-origin https://tftstar.com
+#
+Sitemap: https://tftstar.com/sitemap.xml
